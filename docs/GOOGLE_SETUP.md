@@ -30,6 +30,12 @@ Two independent things are configured in Google Cloud:
      (`https://your-host/*`).
    * **API restrictions → Restrict key → Google Books API**.
 
+> **If the app is published on GitHub Pages**, add
+> `https://yvan-git.github.io/*` to the referrers as well — otherwise Google
+> refuses the key with `API key not valid` even though it works in a tab
+> opened from another address. Leaving **Application restrictions** on
+> *None* also works, and is the simplest option if you only use the key here.
+
 **Without a key** the Books API still answers, but from a shared quota:
 expect `HTTP 429` after a few dozen lookups. When that happens the app falls
 back to the BnF catalogue and, failing that, leaves the form in manual mode —
@@ -41,6 +47,16 @@ nothing is lost.
 is stored in the app's local database (IndexedDB, collection *settings*, field
 `googleBooksApiKey`) — never sent anywhere else. Use the *Tester* button next
 to the field to check the key immediately.
+
+The *Tester* button reports Google's own answer, so the message tells you what
+is actually wrong:
+
+| Message | Meaning |
+|---|---|
+| `Clé API Google Books valide (n résultats)` | the key is accepted |
+| `Aucune clé enregistrée` | the field is empty |
+| `… : API key not valid. Please pass a valid API key.` | wrong key, or the referrer restriction does not match the page you are on |
+| `… : Quota exceeded …` | the daily quota is spent — wait, or use a second key |
 
 ---
 

@@ -6,7 +6,7 @@
  * Catalogue API traffic is never cached: it is the point of the app, and
  * stale metadata would be worse than an offline error.
  */
-const VERSION = 'bookish-v4';
+const VERSION = 'bookish-v5';
 const SHELL = [
   './',
   './app/index.html',

@@ -3,7 +3,7 @@
  * management, data import/export.
  */
 import { t, setLang, getLang, onLangChange } from '../strings.js';
-import { el, icon, toast, confirmDialog, fmtDate, downloadBlob, openSheet } from '../util.js';
+import { el, icon, toast, confirmDialog, fmtDate, downloadBlob, openSheet, debounce } from '../util.js';
 import * as store from '../store.js';
 import { testGoogleApiKey, testBnf } from '../apis.js';
 import { buildInventoryWorkbook } from '../../../shared/xlsx.js';
@@ -50,30 +50,34 @@ export function renderSettings(root, { onChanged, onThemeChanged, onLangChanged 
     ]));
 
     /* ------------------------------ API keys --------------------------- */
-    const gbInput = el('input', {
+    const gbInput = settingInput('googleBooksApiKey', el('input', {
       class: 'input', type: 'password', value: s.googleBooksApiKey || '',
       placeholder: 'AIza…', autocomplete: 'off',
-      oninput: debounceSave((e) => store.updateSetting('googleBooksApiKey', e.currentTarget.value.trim()), 600),
-    });
+    }));
     const testBtn = el('button', {
       class: 'btn btn--secondary btn--sm', type: 'button',
       onclick: async () => {
+        // Read what is actually in the field, not the last saved snapshot: the
+        // key may have been typed a few milliseconds ago, and the debounced
+        // save may not have fired yet.
+        const key = gbInput.value.trim();
+        await saveSetting('googleBooksApiKey', key);
         testBtn.disabled = true;
         const original = testBtn.textContent;
         testBtn.textContent = t('common.loading');
-        const res = await testGoogleApiKey(s.googleBooksApiKey);
+        const res = await testGoogleApiKey(key);
         testBtn.disabled = false;
         testBtn.textContent = original;
         if (res.ok) toast(t('settings.keyOk', { n: res.count }), 'success');
+        else if (res.message === 'empty') toast(t('settings.keyEmpty'), 'error');
         else toast(t('settings.keyFail', { msg: res.message }), 'error');
       },
     }, t('settings.testKey'));
 
-    const oauthInput = el('input', {
+    const oauthInput = settingInput('googleClientId', el('input', {
       class: 'input', type: 'text', value: s.googleClientId || '',
       placeholder: '1234567890-abcdef.apps.googleusercontent.com', autocomplete: 'off',
-      oninput: debounceSave((e) => store.updateSetting('googleClientId', e.currentTarget.value.trim()), 600),
-    });
+    }));
 
     host.append(section(t('settings.apis'), [
       row(t('settings.gbKey'), gbInput, t('settings.gbKeyHelp'), testBtn),
@@ -81,15 +85,13 @@ export function renderSettings(root, { onChanged, onThemeChanged, onLangChanged 
     ]));
 
     /* -------------------------------- Drive ---------------------------- */
-    const fileNameInput = el('input', {
+    const fileNameInput = settingInput('driveFileName', el('input', {
       class: 'input', type: 'text', value: s.driveFileName || 'books-inventory.xlsx',
-      oninput: debounceSave((e) => store.updateSetting('driveFileName', e.currentTarget.value.trim() || 'books-inventory.xlsx'), 600),
-    });
-    const folderInput = el('input', {
+    }), 'books-inventory.xlsx');
+    const folderInput = settingInput('driveFolderId', el('input', {
       class: 'input', type: 'text', value: s.driveFolderId || '',
       placeholder: '1AbCdEf…',
-      oninput: debounceSave((e) => store.updateSetting('driveFolderId', e.currentTarget.value.trim()), 600),
-    });
+    }));
 
     const syncStatus = el('div', { class: 'tiny muted' });
     const updateSyncStatus = () => {
@@ -199,7 +201,10 @@ export function renderSettings(root, { onChanged, onThemeChanged, onLangChanged 
     const fileInput = el('input', {
       type: 'file', accept: 'application/json,.json', style: { display: 'none' },
       onchange: async (e) => {
-        const file = e.currentTarget.files?.[0];
+        // Keep a reference: `event.currentTarget` is null once the dispatch is
+        // over, and the `await` below happens after that.
+        const input = e.currentTarget;
+        const file = input.files?.[0];
         if (!file) return;
         try {
           const text = await file.text();
@@ -211,7 +216,7 @@ export function renderSettings(root, { onChanged, onThemeChanged, onLangChanged 
         } catch (err) {
           toast(t('settings.importFail', { msg: err.message || err }), 'error');
         }
-        e.currentTarget.value = '';
+        input.value = '';
       },
     });
 
@@ -377,10 +382,31 @@ function switchEl(checked, onChange) {
   return btn;
 }
 
-function debounceSave(fn, ms) {
-  let timer = null;
-  return (...args) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), ms);
+/** Persist one setting, never letting a storage error break the UI. */
+function saveSetting(key, value) {
+  return store.updateSetting(key, value).catch(() => {});
+}
+
+/**
+ * Bind a text field to a store setting.
+ *
+ * Two triggers are needed:
+ *  - `input`  : debounced, so a long paste does not hammer IndexedDB;
+ *  - `change` : fired when the field loses focus (e.g. when the user taps the
+ *               "Tester" button) — it saves immediately, so no value is ever
+ *               lost by navigating away right after typing.
+ *
+ * The value is read from the element itself rather than from the event:
+ * `event.currentTarget` is null once the event dispatch has ended, which is
+ * exactly when a debounced callback runs.
+ */
+function settingInput(key, input, fallback = '') {
+  const save = () => {
+    const value = input.value.trim();
+    return saveSetting(key, value || fallback);
   };
+  input.addEventListener('input', debounce(save, 400));
+  input.addEventListener('change', save);
+  input.addEventListener('blur', save);
+  return input;
 }

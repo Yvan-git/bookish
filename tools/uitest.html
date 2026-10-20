@@ -200,6 +200,51 @@ async function run() {
   ok("les réglages exposent la clé API Google Books", /API/i.test(settingsText));
   ok("les réglages exposent la synchronisation Drive", /Drive/i.test(settingsText));
 
+  /* ---- settings are really persisted (debounce / currentTarget trap) ---- */
+  const jsErrors = [];
+  win().addEventListener('error', (e) => jsErrors.push(String(e.message)));
+  const setField = (input, value) => {
+    input.value = value;
+    input.dispatchEvent(new (win().Event)('input', { bubbles: true }));
+  };
+  const gbInput = [...doc().querySelectorAll('#app-main input')].find((i) => i.placeholder?.startsWith('AIza'));
+  const oauthInput = [...doc().querySelectorAll('#app-main input')].find((i) => i.placeholder?.includes('apps.googleusercontent'));
+  ok("le champ de la clé API Google Books est présent", !!gbInput);
+  ok("le champ du client ID OAuth est présent", !!oauthInput);
+
+  if (gbInput) {
+    setField(gbInput, 'AIzaSyTESTKEY00000000000000000000');
+    await until(() => store.getSettings().googleBooksApiKey === 'AIzaSyTESTKEY00000000000000000000', { timeout: 6000 });
+    ok("la clé API Google Books est enregistrée quand on la saisit",
+      store.getSettings().googleBooksApiKey === 'AIzaSyTESTKEY00000000000000000000',
+      `stockée : « ${store.getSettings().googleBooksApiKey || 'vide'} »`);
+  }
+  if (oauthInput) {
+    setField(oauthInput, '1234567890-abcdef.apps.googleusercontent.com');
+    await until(() => store.getSettings().googleClientId === '1234567890-abcdef.apps.googleusercontent.com', { timeout: 6000 });
+    ok("le client ID OAuth est enregistré quand on le saisit",
+      store.getSettings().googleClientId === '1234567890-abcdef.apps.googleusercontent.com',
+      `stocké : « ${store.getSettings().googleClientId || 'vide'} »`);
+  }
+  ok("aucune erreur JavaScript pendant la saisie des réglages", jsErrors.length === 0, jsErrors.join(' | '));
+
+  // the "test key" button must never report the internal "empty" token
+  if (gbInput) {
+    setField(gbInput, '');
+    await sleep(700);
+    const testBtn = [...doc().querySelectorAll('#app-main button')].find((b) => /test/i.test(b.textContent));
+    testBtn?.click();
+    await sleep(1200);
+    const keyToast = (doc().querySelector('.toast')?.textContent || '').trim();
+    ok("le test de la clé signale l'absence de clé en clair",
+      keyToast.length > 0 && !/empty/i.test(keyToast) && !/^\s*$/i.test(keyToast), keyToast || 'aucun message');
+    doc().querySelector('.toast')?.remove();
+  }
+
+  // restore a clean state
+  if (gbInput) { setField(gbInput, ''); await sleep(500); }
+  if (oauthInput) { setField(oauthInput, ''); await sleep(500); }
+
   /* ---- scan view ---- */
   app.navigate('scan');
   await until(() => doc().querySelector('#app-main'), { timeout: 8000 });
