@@ -13,6 +13,10 @@ A complete, dependency-free system to inventory a private book collection:
 No build step, no npm, no framework, no server-side code. Open the files over
 HTTP and they work.
 
+> **Live now:** <https://yvan-git.github.io/bookish/app/index.html>
+> (GitHub Pages — open it in Chrome on the phone and use ⋮ → *Add to Home
+> screen* to install it. Deployment details: [docs/GITHUB_DEPLOY.md](docs/GITHUB_DEPLOY.md).)
+
 ---
 
 ## 1. Quick start
@@ -201,10 +205,41 @@ A JSON file exported from the phone can also be loaded directly
 
 **Full guide: [docs/INSTALL_ANDROID.md](docs/INSTALL_ANDROID.md).**
 
-Short version — the app is a PWA, so Chrome installs it like a native app:
+### Already published
+
+The app is live on GitHub Pages:
+
+> **https://yvan-git.github.io/bookish/app/index.html**
+
+Open that URL in Chrome on the phone → ⋮ menu → **Add to Home screen** /
+**Install app**. That is the whole installation: no APK, no app store, no build
+step. The camera works because the URL is `https://`.
+
+Other pages on the same site:
+
+| Page | URL |
+|---|---|
+| Application | `https://yvan-git.github.io/bookish/app/index.html` |
+| Desktop simulator | `https://yvan-git.github.io/bookish/app/simulator.html` |
+| Laptop workspace | `https://yvan-git.github.io/bookish/laptop/index.html` |
+| Deployment guide | [docs/GITHUB_DEPLOY.md](docs/GITHUB_DEPLOY.md) |
+
+### Publishing your own copy
 
 ```powershell
-# 1. expose the folder over https (camera + service worker need a secure context)
+cd bookish
+git add -A
+git commit -m "Update"
+git push                       # GitHub Pages rebuilds within ~1 minute
+```
+
+The repo is served "from a branch", so every push to `main` is a new deploy —
+no build action, no workflow file.
+
+### Short version without a repository
+
+```powershell
+# expose the folder over https (camera + service worker need a secure context)
 winget install --id Cloudflare.cloudflared
 powershell -ExecutionPolicy Bypass -File tools\tunnel.ps1
 #    -> ADRESSE PUBLIQUE : https://xxxx.trycloudflare.com
@@ -214,9 +249,9 @@ powershell -ExecutionPolicy Bypass -File tools\tunnel.ps1
 # 4. allow the camera when it asks
 ```
 
-Alternatives: a static host (Netlify Drop, GitHub Pages, Vercel — the folder is
-100 % static), ngrok, or `tools\serve.ps1 -Lan` for the local Wi-Fi (everything
-works but the camera, which needs https).
+Alternatives: any static host (Netlify Drop, Vercel, Cloudflare Pages — the
+folder is 100 % static), ngrok, or `tools\serve.ps1 -Lan` for the local Wi-Fi
+(everything works but the camera, which needs https).
 
 > Installing the same URL as a bookmark is enough for daily use; "Add to home
 > screen" is only needed for the standalone window and the offline cache.
@@ -241,7 +276,7 @@ bookish/
 │     ├─ sync.js             auto-sync debounce, sync status
 │     ├─ scanner.js          BarcodeDetector + jsQR fallback + camera
 │     ├─ stats.js            statistics computation
-│     ├─ strings.js          FR/EN dictionaries (211 keys each)
+│     ├─ strings.js          FR/EN dictionaries (215 keys each)
 │     ├─ util.js             DOM helpers, icons, sheets, toasts
 │     └─ views/              scan, library, stats, settings + shared widgets
 ├─ laptop/                  laptop workspace (table, classification, audit)
@@ -263,6 +298,7 @@ bookish/
 │  └─ camtest.html          tests of the real camera scanner
 ├─ docs/
 │  ├─ GOOGLE_SETUP.md       Google Cloud / Drive configuration
+│  ├─ GITHUB_DEPLOY.md      publish on GitHub Pages, then install on Android
 │  └─ INSTALL_ANDROID.md    how to put the app on an Android phone
 └─ app/vendor/jsQR.js       offline barcode decoder (fallback for desktops)
 ```

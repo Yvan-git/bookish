@@ -1,0 +1,11 @@
+# Keep line endings stable across Windows / Linux / macOS.
+# The whole project is plain text: LF everywhere avoids noisy diffs and
+# keeps GitHub Pages serving byte-identical files.
+* text=auto eol=lf
+
+# Binary assets
+*.png binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.xlsx binary

@@ -4,13 +4,22 @@ Bookish is a **Progressive Web App**: it is a web application that Chrome can
 install on the home screen and then run full-screen, offline, like a native
 app. There is no APK to build and no store to publish to.
 
+> **Short version — it is already online.**
+> Open **<https://yvan-git.github.io/bookish/app/index.html>** in Chrome on the
+> phone, then menu ⋮ → **Add to Home screen** → **Install**. That is the whole
+> installation, and the camera works because the address is `https://`.
+>
+> Full publication procedure, verification and troubleshooting:
+> [GITHUB_DEPLOY.md](GITHUB_DEPLOY.md).
+
 ---
 
 ## 0. What you need
 
 * An Android phone with **Chrome** (Chrome 90+ for the install prompt).
 * The `bookish/` folder on the computer.
-* A way to publish the folder behind an **https** address (see below).
+* A way to publish the folder behind an **https** address (see below) — or
+  just use the GitHub Pages address above.
 
 ---
 
