@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bookish — self test</title>
+<style>
+  body { font-family: ui-monospace, Consolas, monospace; padding: 16px; background: #111; color: #eee; }
+  .pass { color: #6ee7a8; } .fail { color: #ff8f8f; } .info { color: #9ec5ff; }
+  #xlsx-b64 { display: none; }
+</style>
+</head>
+<body>
+<h1>Bookish self test</h1>
+<div id="results"></div>
+<pre id="xlsx-b64"></pre>
+
+<script>
+  // Expose a promise so an external driver (tools/cdp-run.ps1) can await the
+  // result instead of scraping the DOM.
+  window.__selftest = new Promise((resolve) => { window.__selftestResolve = resolve; });
+</script>
+
+<script type="module">
+import { toIsbn13, isValidIsbn13, isValidIsbn10, isbn13to10, isbn10to13, prettyIsbn, parseBnfUnimarc, parseBnfDublinCore, lookupIsbn } from '../app/js/apis.js';
+import { buildWorkbook, buildInventoryWorkbook } from '../shared/xlsx.js';
+
+const out = document.getElementById('results');
+let failures = 0;
+
+function ok(name, cond, detail = '') {
+  const line = document.createElement('div');
+  line.className = cond ? 'pass' : 'fail';
+  line.textContent = `${cond ? 'PASS' : 'FAIL'}  ${name}${detail ? '  → ' + detail : ''}`;
+  out.append(line);
+  if (!cond) failures++;
+}
+function info(name, value) {
+  const line = document.createElement('div');
+  line.className = 'info';
+  line.textContent = `INFO  ${name}: ${value}`;
+  out.append(line);
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1]);
+    reader.readAsDataURL(blob);
+  });
+}
+
+/* ------------------------------ ISBN ------------------------------ */
+// Reference pair: ISBN-10 2070362515 == ISBN-13 9782070362516 ("Mort dans l'après-midi", Gallimard)
+ok('isbn10to13(2070362515)', isbn10to13('2070362515') === '9782070362516', isbn10to13('2070362515'));
+ok('isbn13to10(9782070362516)', isbn13to10('9782070362516') === '2070362515', isbn13to10('9782070362516'));
+ok('isValidIsbn13', isValidIsbn13('9782070362516') === true);
+ok('isValidIsbn10', isValidIsbn10('2070362515') === true);
+ok('isValidIsbn13 rejects bad check digit', isValidIsbn13('9782070362518') === false);
+ok('isValidIsbn10 rejects bad check digit', isValidIsbn10('207036251X') === false);
+ok('toIsbn13 from isbn10', toIsbn13('2070362515') === '9782070362516');
+ok('toIsbn13 from formatted', toIsbn13('978-2-07-036251-6') === '9782070362516');
+ok('prettyIsbn', prettyIsbn('9782070362516') === '978-2-07-036251-6', prettyIsbn('9782070362516'));
+
+/* ------------------------------- XLSX ------------------------------ */
+const workbook = buildWorkbook([
+  {
+    name: 'Livres',
+    title: 'Inventaire',
+    subtitle: '3 livre(s)',
+    columns: [{ header: 'Titre', width: 40 }, { header: 'Note', width: 10 }, { header: 'Lu', width: 10 }],
+    rows: [['Le Père Goriot & "spécial"', 5, true], ['L’Étranger', 4, false]],
+  },
+  { name: 'Vide', columns: [{ header: 'A', width: 10 }], rows: [] },
+]);
+const bytes = new Uint8Array(await workbook.arrayBuffer());
+info('xlsx size', `${bytes.length} bytes`);
+ok('xlsx magic PK\\x03\\x04', bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04);
+const sig = String.fromCharCode(...bytes.slice(0, 4));
+ok('zip local header signature', sig === 'PK', JSON.stringify(sig));
+
+const inv = buildInventoryWorkbook({
+  books: [{
+    id: '1', title: 'Test & <book>', subtitle: '', authors: ['Auteur'], isbn13: '9782070362518', isbn10: '',
+    publisher: 'Gallimard', year: '1942', language: 'fr', pages: '123', collection: 'Folio', dewey: '843',
+    subjects: ['Roman'], coverUrl: 'https://example.org/c.jpg', catalogueUrl: 'https://catalogue.bnf.fr/x',
+    description: 'Résumé', rating: 5, tagIds: ['t1'], locationId: 'l1', notes: 'note', borrowed: false,
+    source: 'bnf', addedAt: '2026-01-02T03:04:05.000Z', updatedAt: '2026-01-02T03:04:05.000Z',
+  }],
+  locations: [{ id: 'l1', room: 'Salon', zone: 'gauche', shelf: '1ère étagère', position: 'droite', label: 'Salon gauche, 1ère étagère droite', createdAt: '2026-01-01T00:00:00.000Z' }],
+  tags: [{ id: 't1', name: 'Classique', category: 'style' }],
+  stats: { total: 1, rooms: 1 },
+});
+const invBytes = new Uint8Array(await inv.arrayBuffer());
+info('inventory xlsx size', `${invBytes.length} bytes`);
+document.getElementById('xlsx-b64').textContent = await blobToBase64(inv);
+
+/* --------------------------- BnF parsing --------------------------- */
+try {
+  const url = 'https://catalogue.bnf.fr/api/SRU?version=1.2&operation=searchRetrieve&query='
+    + encodeURIComponent('bib.fuzzyIsbn all "9782070362516"')
+    + '&maximumRecords=1&recordSchema=unimarcxchange';
+  const res = await fetch(url);
+  const text = await res.text();
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  const recordData = doc.getElementsByTagNameNS('*', 'recordData')[0];
+  ok('BnF returned a record', !!recordData);
+  const parsed = parseBnfUnimarc(new XMLSerializer().serializeToString(recordData));
+  ok('BnF UNIMARC parsed', !!parsed);
+  if (parsed) {
+    info('bnf title', parsed.title);
+    info('bnf authors', (parsed.authors || []).join(' | '));
+    info('bnf publisher', parsed.publisher);
+    info('bnf year', parsed.year);
+    info('bnf pages', parsed.pages);
+    info('bnf collection', parsed.collection);
+    info('bnf dewey', parsed.dewey);
+    info('bnf language', parsed.language);
+    info('bnf isbn13', parsed.isbn13);
+    info('bnf ark', parsed.catalogueUrl);
+    info('bnf cover', parsed.coverUrl);
+    ok('bnf has title', !!parsed.title);
+    ok('bnf has isbn', parsed.isbn13.length === 13 || parsed.isbn10.length === 10);
+    ok('bnf has cover url', parsed.coverUrl.includes('images.bnf.fr'));
+  }
+
+  // Full lookup pipeline (BnF first).
+  const lookup = await lookupIsbn('9782070362516', { apiKey: '' });
+  info('lookup status', lookup.status);
+  info('lookup source', lookup.source);
+  ok('lookup found a book', lookup.status === 'found' || lookup.status === 'notfound');
+  if (lookup.status === 'found') info('lookup title', lookup.book.title);
+} catch (err) {
+  ok('BnF network reachable', false, String(err.message || err));
+}
+
+/* ------------------------------ storage ------------------------------ */
+try {
+  const mod = await import('../app/js/store.js');
+  ok('store module loads', typeof mod.loadAll === 'function' && typeof mod.addBook === 'function');
+  await mod.loadAll();
+  ok('store initialised', mod.state.ready === true);
+} catch (err) {
+  ok('store module loads', false, String(err.message || err));
+}
+
+/* ------------------------------ result ------------------------------ */
+const summary = document.createElement('h2');
+summary.textContent = failures === 0 ? 'ALL TESTS PASSED' : `${failures} TEST(S) FAILED`;
+summary.style.color = failures === 0 ? '#6ee7a8' : '#ff8f8f';
+out.append(summary);
+document.title = failures === 0 ? 'SELFTEST-OK' : `SELFTEST-FAIL-${failures}`;
+window.__selftestResolve({
+  failures,
+  verdict: failures === 0 ? 'TOUS LES TESTS UNITAIRES SONT PASSÉS' : `${failures} TEST(S) EN ÉCHEC`,
+  lines: Array.from(out.querySelectorAll('div')).map((d) => d.textContent),
+  title: document.title,
+});
+</script>
+</body>
+</html>

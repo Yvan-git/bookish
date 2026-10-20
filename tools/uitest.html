@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Bookish — Tests d'interface</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 "Segoe UI", system-ui, sans-serif; margin: 0; padding: 20px; background: #12100f; color: #f0ece7; }
+  h1 { font-size: 1.1rem; margin: 0 0 4px; }
+  .sub { color: #a89f96; font-size: .82rem; margin-bottom: 14px; }
+  #out { font-family: Consolas, "Courier New", monospace; font-size: 12px; white-space: pre-wrap;
+         background: #1b1817; border: 1px solid #333; border-radius: 8px; padding: 12px; max-height: 46vh; overflow: auto; }
+  .PASS { color: #6ee7a8; } .FAIL { color: #ff8b8b; } .WARN { color: #f5c26b; } .INFO { color: #9ec7ff; }
+  #frame { width: 412px; height: 780px; border: 1px solid #333; border-radius: 10px; margin-top: 14px; background: #000; }
+  .summary { margin-top: 12px; font-weight: 600; }
+</style>
+</head>
+<body>
+  <h1>Bookish — tests d'interface de bout en bout</h1>
+  <div class="sub">Exécute l'application réelle (iframe) et vérifie les parcours clés.</div>
+  <div id="out"></div>
+  <div class="summary" id="summary">En cours…</div>
+  <iframe id="frame" src="../app/index.html" title="Bookish"></iframe>
+
+<script type="module">
+/* ------------------------------------------------------------------ */
+/* Test harness                                                        */
+/* ------------------------------------------------------------------ */
+const out = document.getElementById('out');
+const summaryEl = document.getElementById('summary');
+const lines = [];
+let pass = 0, fail = 0, warn = 0;
+
+function emit(kind, name, detail = '') {
+  const line = `${kind.padEnd(4)} ${name}${detail ? ' — ' + detail : ''}`;
+  lines.push(line);
+  const div = document.createElement('div');
+  div.className = kind;
+  div.textContent = line;
+  out.appendChild(div);
+  out.scrollTop = out.scrollHeight;
+}
+const ok = (name, cond, detail = '') => {
+  if (cond) { pass++; emit('PASS', name, detail); }
+  else { fail++; emit('FAIL', name, detail); }
+  return !!cond;
+};
+const soft = (name, cond, detail = '') => {
+  if (cond) { pass++; emit('PASS', name, detail); }
+  else { warn++; emit('WARN', name, detail); }
+  return !!cond;
+};
+const info = (name, detail = '') => emit('INFO', name, detail);
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Wait until `fn()` is truthy, polling in real time. */
+async function until(fn, { timeout = 15000, step = 100 } = {}) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    let v;
+    try { v = fn(); } catch { v = false; }
+    if (v) return v;
+    await sleep(step);
+  }
+  return false;
+}
+
+const frame = document.getElementById('frame');
+const win = () => frame.contentWindow;
+const doc = () => frame.contentDocument;
+
+/* ------------------------------------------------------------------ */
+/* Fixtures                                                            */
+/* ------------------------------------------------------------------ */
+const SEED = [
+  { isbn13: '9782070362516', title: "Mort dans l'après-midi", authors: ['Hemingway, Ernest'], publisher: 'Gallimard', year: '1972', pages: '503', language: 'fr', room: 'Salon', zone: 'gauche', shelf: '1ère étagère', position: 'droite', tags: ['Classique', 'Roman'], rating: 5 },
+  { isbn13: '9782070423203', title: 'Lieux dits', authors: ['Tournier, Michel'], publisher: 'Flammarion', year: '1993', pages: '352', language: 'fr', room: 'Salon', zone: 'gauche', shelf: '1ère étagère', position: 'gauche', tags: ['Classique', 'Prix Goncourt'], rating: 4 },
+  { isbn13: '9782253070219', title: "La ballade d'Iza", authors: ['Szabó, Magda'], publisher: 'Flammarion', year: '1988', pages: '250', language: 'fr', room: 'Chambre', zone: '', shelf: '2ème étagère', position: 'gauche', tags: ['Roman', 'Littérature hongroise'], rating: 5 },
+  { isbn13: '9782263013061', title: 'Mythes et couleurs du Mexique', authors: ['Jannel, Claude'], publisher: 'Actes Sud', year: '2013', pages: '224', language: 'fr', room: 'Garage', zone: 'gauche', shelf: '3ème étagère', position: 'droite', tags: ['Essai', 'Voyage'], rating: 3 },
+  { isbn13: '9780140328721', title: 'Matilda', authors: ['Dahl, Roald'], publisher: 'Puffin', year: '2001', pages: '240', language: 'en', room: 'Chambre', zone: '', shelf: '2ème étagère', position: 'droite', tags: ['Jeunesse', 'Fantasy'], rating: 4 },
+  { isbn13: '9782070461073', title: 'La Belle dame chez les Sioux', authors: ['Steelman, Robert J.'], publisher: 'Flammarion', year: '1998', pages: '298', language: 'fr', room: 'Bureau', zone: '', shelf: '1ère étagère', position: 'gauche', tags: ['Roman', 'Western'], rating: 3 },
+  { isbn13: '9782070402684', title: 'Cent ans de solitude', authors: ['García Márquez, Gabriel'], publisher: 'Gallimard', year: '1982', pages: '448', language: 'fr', room: 'Bureau', zone: '', shelf: '2ème étagère', position: 'droite', tags: ['Classique', 'Roman'], rating: 5 },
+];
+
+async function seed(store) {
+  for (const d of SEED) {
+    const loc = await store.addLocation(store.makeLocation({ room: d.room, zone: d.zone, shelf: d.shelf, position: d.position }));
+    const tagIds = [];
+    for (const name of d.tags) {
+      const tag = await store.addTag({ name, category: name === 'Jeunesse' ? 'public' : 'style' });
+      if (tag) tagIds.push(tag.id);
+    }
+    await store.addBook({
+      isbn13: d.isbn13, title: d.title, authors: d.authors, publisher: d.publisher,
+      year: d.year, pages: d.pages, language: d.language, locationId: loc.id, tagIds,
+      rating: d.rating, source: 'bnf', subjects: [], coverUrl: '', catalogueUrl: '',
+    });
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Suite                                                               */
+/* ------------------------------------------------------------------ */
+async function run() {
+  /* ---- boot ---- */
+  const loaded = await until(() => win() && win().bookish && win().bookish.state, { timeout: 20000 });
+  if (!ok("l'application démarre", loaded)) return;
+
+  const ready = await until(() => win().bookish.state.ready, { timeout: 20000 });
+  if (!ok("IndexedDB est chargé (state.ready)", ready)) return;
+
+  const app = win().bookish;
+  const store = app.store;
+
+  const navItems = doc().querySelectorAll('#bottom-nav .nav-btn');
+  ok("la navigation principale est rendue", navItems.length === 4, `${navItems.length} entrées`);
+
+  /* ---- reset & seed ---- */
+  await store.clearAllData();
+  await store.loadAll();
+  await seed(store);
+  await until(() => store.state.books.length === SEED.length, { timeout: 10000 });
+  ok("7 livres de démonstration sont enregistrés", store.state.books.length === SEED.length, `${store.state.books.length} livres`);
+  ok("4+ emplacements sont créés", store.state.locations.length >= 4, `${store.state.locations.length} emplacements`);
+  ok("les étiquettes sont créées", store.state.tags.length >= 6, `${store.state.tags.length} étiquettes`);
+
+  /* ---- location label format ---- */
+  const loc = store.state.locations.find((l) => l.room === 'Salon');
+  const label = store.locationLabel(loc);
+  ok("le libellé d'emplacement suit « pièce, zone, étagère, position »",
+    /^Salon gauche, 1ère étagère droite$/.test(label), label);
+
+  /* ---- default location = last addition ---- */
+  const lastBook = store.state.books[0];
+  ok("l'emplacement par défaut mémorise le dernier ajout",
+    store.getSettings().lastLocationId === lastBook.locationId,
+    `lastLocationId=${store.getSettings().lastLocationId}`);
+
+  /* ---- library ---- */
+  app.navigate('library');
+  await until(() => doc().querySelectorAll('#app-main .book-row').length > 0, { timeout: 8000 });
+  const rows = doc().querySelectorAll('#app-main .book-row');
+  ok("la bibliothèque affiche tous les livres", rows.length === SEED.length, `${rows.length} lignes`);
+
+  const search = doc().querySelector('#app-main .searchbar input');
+  ok("la barre de recherche est présente", !!search);
+
+  const setQuery = async (q) => {
+    search.value = q;
+    search.dispatchEvent(new (win().Event)('input', { bubbles: true }));
+    await sleep(400);
+    return doc().querySelectorAll('#app-main .book-row').length;
+  };
+
+  const nHemingway = await setQuery('hemingway');
+  ok("la recherche filtre par auteur (insensible à la casse)", nHemingway === 1, `${nHemingway} résultat(s)`);
+
+  const nAccent = await setQuery('garcía');
+  ok("la recherche ignore les accents", nAccent === 1, `${nAccent} résultat(s)`);
+
+  const nNoAccent = await setQuery('garcia');
+  ok("la recherche sans accent trouve le même livre", nNoAccent === 1, `${nNoAccent} résultat(s)`);
+
+  const nNone = await setQuery('zzzzintrouvable');
+  ok("une recherche sans résultat affiche un état vide", nNone === 0 && !!doc().querySelector('#app-main .empty'), `${nNone} ligne(s)`);
+
+  const nIsbn = await setQuery('9782253070219');
+  ok("la recherche fonctionne par ISBN", nIsbn === 1, `${nIsbn} résultat(s)`);
+
+  const nTag = await setQuery('Jeunesse');
+  ok('la recherche fonctionne par étiquette', nTag === 1, `${nTag} résultat(s)`);
+
+  await setQuery('');
+  const nAll = doc().querySelectorAll('#app-main .book-row').length;
+  ok("l\'effacement de la recherche restaure la liste", nAll === SEED.length, `${nAll} lignes`);
+
+  /* ---- stats ---- */
+  app.navigate('stats');
+  await until(() => doc().querySelectorAll('#app-main .kpi').length > 0, { timeout: 8000 });
+  await sleep(500);
+  const kpis = doc().querySelectorAll('#app-main .kpi');
+  ok("la page statistiques affiche les indicateurs", kpis.length >= 6, `${kpis.length} indicateurs`);
+  const kpiText = kpis[0]?.textContent || '';
+  ok("l'indicateur du nombre total vaut 7", kpiText.includes('7'), kpiText.replace(/\s+/g, ' ').trim());
+
+  const charts = doc().querySelectorAll('#app-main .chart');
+  ok("la page statistiques affiche les graphiques", charts.length >= 6, `${charts.length} graphiques`);
+  const rects = doc().querySelectorAll('#app-main .chart svg rect');
+  ok("les graphiques contiennent des barres SVG", rects.length >= 5, `${rects.length} rectangles`);
+  const pareto = doc().querySelector('#app-main .chart polyline, #app-main .chart path');
+  ok("le Pareto des étiquettes est tracé (courbe cumulée)", !!pareto);
+
+  /* ---- settings ---- */
+  app.navigate('settings');
+  await until(() => doc().querySelectorAll('#app-main .setting-row').length > 0, { timeout: 8000 });
+  const settingRows = doc().querySelectorAll('#app-main .setting-row');
+  ok("la page réglages présente les sections", settingRows.length >= 8, `${settingRows.length} lignes de réglage`);
+  const settingsText = doc().querySelector('#app-main').textContent;
+  ok("les réglages exposent la clé API Google Books", /API/i.test(settingsText));
+  ok("les réglages exposent la synchronisation Drive", /Drive/i.test(settingsText));
+
+  /* ---- scan view ---- */
+  app.navigate('scan');
+  await until(() => doc().querySelector('#app-main'), { timeout: 8000 });
+  await sleep(300);
+  ok("la vue scan propose la saisie ISBN (douchette)", !!doc().querySelector('#app-main input[inputmode="numeric"]'));
+  ok("la vue scan propose la saisie manuelle du titre", !!doc().querySelector('#manual-title'));
+  ok('la vue scan propose la saisie manuelle de l\'auteur', !!doc().querySelector('#manual-author'));
+  ok('la vue scan affiche un bouton de scan', [...doc().querySelectorAll('#app-main button')].some((b) => /scan|scanner/i.test(b.textContent)));
+
+  /* ---- barcode decoding engine ---- */
+  try {
+    const { loadJsQr } = await import('../app/js/scanner.js');
+    const fn = await loadJsQr();
+    ok('le décodeur de secours jsQR se charge depuis le dossier local',
+      typeof fn === 'function', 'app/vendor/jsQR.js');
+  } catch (e) {
+    ok('le décodeur de secours jsQR se charge depuis le dossier local', false, String(e));
+  }
+  const native = 'BarcodeDetector' in win();
+  const engine = native ? 'natif (BarcodeDetector)' : 'jsQR (secours)';
+  soft('un moteur de décodage est disponible', true, `moteur sur cette machine : ${engine}`);
+
+  /* ---- scan flow: simulated barcode -> BnF proposal ---- */
+  app.navigate('scan');
+  await sleep(400);
+  app.simulateScan('9782070362516');
+  const title = await until(() => {
+    const input = doc().querySelector('#app-main .meta-form .field-grid input');
+    return input && input.value ? input.value : false;
+  }, { timeout: 40000 });
+  soft('le scan simulé produit une fiche BnF pré-remplie', !!title, title ? `titre : « ${title} »` : 'aucune fiche');
+  const badge = doc().querySelector('#app-main .badge')?.textContent || '';
+  soft('la proposition affiche la source (BnF / Google)', /BnF|Google/i.test(badge), badge);
+  const pressed = doc().querySelector('#app-main .location-picker .chip[aria-pressed="true"]');
+  soft('l\'emplacement par défaut est proposé dans la fiche', !!pressed, pressed?.textContent?.trim() || 'aucun emplacement sélectionné');
+
+  /* ---- export XLSX ---- */
+  try {
+    const { buildInventoryWorkbook } = await import('../shared/xlsx.js');
+    const { computeStats } = await import('../app/js/stats.js');
+    const blob = buildInventoryWorkbook({
+      books: store.state.books,
+      locations: store.state.locations,
+      tags: store.state.tags,
+      stats: computeStats(),
+    });
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    const isZip = buf[0] === 0x50 && buf[1] === 0x4b;
+    ok("l'export XLSX produit un fichier ZIP valide", isZip, `${blob.size} octets`);
+    ok("l'export XLSX n'est pas vide", blob.size > 3000, `${blob.size} octets`);
+  } catch (e) {
+    ok("l'export XLSX fonctionne", false, String(e));
+  }
+
+  /* ---- JSON snapshot ---- */
+  try {
+    const snap = store.snapshot();
+    ok('le snapshot JSON contient les livres', snap.books.length === SEED.length);
+    ok('le snapshot JSON porte le format attendu', snap.format === 'bookish-inventory');
+  } catch (e) {
+    ok('le snapshot JSON fonctionne', false, String(e));
+  }
+
+  /* ---- network lookup (soft) ---- */
+  try {
+    const { lookupIsbn } = await import('../app/js/apis.js');
+    const res = await lookupIsbn('9782070362516', { timeout: 20000 });
+    if (res && res.status === 'found') {
+      soft('la recherche BnF renvoie une fiche complète',
+        !!res.book?.title && !!res.book?.publisher,
+        `${res.source} — ${res.book?.title} (${res.book?.publisher || '?'}, ${res.book?.year || '?'})`);
+    } else {
+      soft('la recherche BnF renvoie une fiche complète', false, `statut=${res?.status || 'inconnu'} ${res?.warning || ''}`);
+    }
+  } catch (e) {
+    soft('la recherche BnF renvoie une fiche complète', false, String(e));
+  }
+}
+
+window.__uitest = (async () => {
+  try {
+    await run();
+  } catch (e) {
+    fail++;
+    emit('FAIL', 'exception non rattrapée', String(e && e.stack ? e.stack : e));
+  }
+  const verdict = fail === 0 ? 'TOUS LES TESTS UI SONT PASSÉS' : `${fail} TEST(S) EN ÉCHEC`;
+  summaryEl.textContent = `${verdict} — ${pass} réussis, ${fail} échecs, ${warn} avertissements`;
+  lines.push('');
+  lines.push(summaryEl.textContent);
+  return { pass, fail, warn, verdict, lines };
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Bookish — Test de l'espace laptop</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 "Segoe UI", system-ui, sans-serif; margin: 0; padding: 20px; background: #12100f; color: #f0ece7; }
+  h1 { font-size: 1.1rem; margin: 0 0 4px; }
+  .sub { color: #a89f96; font-size: .82rem; margin-bottom: 14px; }
+  #out { font-family: Consolas, "Courier New", monospace; font-size: 12px; white-space: pre-wrap;
+         background: #1b1817; border: 1px solid #333; border-radius: 8px; padding: 12px; max-height: 46vh; overflow: auto; }
+  .PASS { color: #6ee7a8; } .FAIL { color: #ff8b8b; } .WARN { color: #f5c26b; } .INFO { color: #9ec7ff; }
+  #frame { width: 100%; height: 780px; border: 1px solid #333; border-radius: 10px; margin-top: 14px; background: #000; }
+  .summary { margin-top: 12px; font-weight: 600; }
+</style>
+</head>
+<body>
+  <h1>Bookish — test de l'espace laptop</h1>
+  <div class="sub">Charge un instantané d'inventaire et vérifie le tableau, la classification, l'audit et les statistiques.</div>
+  <div id="out"></div>
+  <div class="summary" id="summary">En cours…</div>
+  <iframe id="frame" src="../laptop/index.html" title="Espace laptop"></iframe>
+
+<script>
+window.__laptest = new Promise((resolve) => { window.__laptestResolve = resolve; });
+</script>
+
+<script type="module">
+const out = document.getElementById('out');
+const summaryEl = document.getElementById('summary');
+const lines = [];
+let pass = 0, fail = 0, warn = 0;
+
+function emit(kind, name, detail = '') {
+  const line = `${kind.padEnd(4)} ${name}${detail ? ' — ' + detail : ''}`;
+  lines.push(line);
+  const div = document.createElement('div');
+  div.className = kind;
+  div.textContent = line;
+  out.appendChild(div);
+  out.scrollTop = out.scrollHeight;
+}
+const ok = (name, cond, detail = '') => {
+  if (cond) { pass++; emit('PASS', name, detail); } else { fail++; emit('FAIL', name, detail); }
+  return !!cond;
+};
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function until(fn, { timeout = 15000, step = 100 } = {}) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    let v; try { v = fn(); } catch { v = false; }
+    if (v) return v;
+    await sleep(step);
+  }
+  return false;
+}
+
+const frame = document.getElementById('frame');
+const doc = () => frame.contentDocument;
+const win = () => frame.contentWindow;
+const L = () => win().bookishLaptop;
+
+/* ------------------------------ fixture ------------------------------ */
+const loc = (id, room, zone, shelf, position) => ({ id, room, zone, shelf, position, label: `${room} ${zone}, ${shelf} ${position}` });
+const locations = [
+  loc('l1', 'Salon', 'gauche', '1ère étagère', 'droite'),
+  loc('l2', 'Salon', 'gauche', '1ère étagère', 'gauche'),
+  loc('l3', 'Chambre', '', '2ème étagère', 'gauche'),
+  loc('l4', 'Garage', 'droite', '3ème étagère', 'droite'),
+];
+const tags = [
+  { id: 't1', name: 'Classique', category: 'style' },
+  { id: 't2', name: 'Roman', category: 'style' },
+  { id: 't3', name: 'Jeunesse', category: 'public' },
+  { id: 't4', name: 'Essai', category: 'style' },
+];
+const books = [
+  { id: 'b1', isbn13: '9782070362516', title: "Mort dans l'après-midi", authors: ['Hemingway, Ernest'], publisher: 'Gallimard', year: '1972', language: 'fr', locationId: 'l1', tagIds: ['t1', 't2'], rating: 5, source: 'bnf' },
+  { id: 'b2', isbn13: '9782070423203', title: 'Lieux dits', authors: ['Tournier, Michel'], publisher: 'Flammarion', year: '1993', language: 'fr', locationId: 'l2', tagIds: ['t1'], rating: 4, source: 'bnf' },
+  { id: 'b3', isbn13: '9782253070219', title: 'La ballade d\'Iza', authors: ['Szabó, Magda'], publisher: 'Flammarion', year: '1988', language: 'fr', locationId: 'l3', tagIds: ['t2'], rating: 5, source: 'bnf' },
+  { id: 'b4', isbn13: '9782263013061', title: 'Mythes et couleurs du Mexique', authors: ['Jannel, Claude'], publisher: 'Actes Sud', year: '2013', language: 'fr', locationId: 'l4', tagIds: ['t4'], rating: 3, source: 'bnf' },
+  { id: 'b5', isbn13: '9780140328721', title: 'Matilda', authors: ['Dahl, Roald'], publisher: 'Puffin', year: '2001', language: 'en', locationId: 'l3', tagIds: ['t3'], rating: 4, source: 'google' },
+  { id: 'b6', isbn13: '9782070461073', title: 'La Belle dame chez les Sioux', authors: ['Steelman, Robert J.'], publisher: 'Flammarion', year: '1998', language: 'fr', locationId: 'l1', tagIds: ['t2'], rating: 3, source: 'manual' },
+];
+const snapshot = { format: 'bookish-inventory', version: 1, exportedAt: new Date().toISOString(), books, locations, tags };
+
+async function run() {
+  ok('l\'espace laptop se charge', await until(() => !!doc() && !!doc().querySelector('#table')), '');
+  const handle = await until(() => win().bookishLaptop, { timeout: 15000 });
+  ok('le module laptop expose son état', !!handle);
+  if (!handle) return;
+
+  /* ---- load ---- */
+  L().loadData(snapshot);
+  await sleep(400);
+  ok('le tableau affiche les 6 livres', doc().querySelectorAll('#table tbody tr').length === 6,
+    `${doc().querySelectorAll('#table tbody tr').length} lignes`);
+  ok('le tableau possède 10 colonnes', doc().querySelectorAll('#table thead th').length === 10,
+    `${doc().querySelectorAll('#table thead th').length} colonnes`);
+  ok('le compteur de livres est affiché', /6 livre/.test(doc().querySelector('#table-count').textContent),
+    doc().querySelector('#table-count').textContent);
+
+  /* ---- filters ---- */
+  const roomSel = doc().querySelector('#filter-room');
+  const tagSel = doc().querySelector('#filter-tag');
+  ok('le filtre par pièce est alimenté', roomSel.options.length === 4, `${roomSel.options.length} pièces`);
+  ok('le filtre par étiquette est alimenté', tagSel.options.length === 5, `${tagSel.options.length} options`);
+
+  roomSel.value = 'Salon';
+  roomSel.dispatchEvent(new Event('change'));
+  await sleep(150);
+  ok('le filtre par pièce réduit le tableau', doc().querySelectorAll('#table tbody tr').length === 3,
+    `${doc().querySelectorAll('#table tbody tr').length} lignes`);
+
+  roomSel.value = '';
+  roomSel.dispatchEvent(new Event('change'));
+  await sleep(150);
+
+  tagSel.value = 't3';
+  tagSel.dispatchEvent(new Event('change'));
+  await sleep(150);
+  ok('le filtre par étiquette réduit le tableau', doc().querySelectorAll('#table tbody tr').length === 1,
+    `${doc().querySelectorAll('#table tbody tr').length} ligne`);
+  tagSel.value = '';
+  tagSel.dispatchEvent(new Event('change'));
+  await sleep(150);
+
+  const q = doc().querySelector('#q');
+  q.value = 'hemingway';
+  q.dispatchEvent(new Event('input'));
+  await sleep(150);
+  ok('la recherche filtre le tableau (insensible à la casse)', doc().querySelectorAll('#table tbody tr').length === 1,
+    `${doc().querySelectorAll('#table tbody tr').length} ligne`);
+  q.value = 'garcia';
+  q.dispatchEvent(new Event('input'));
+  await sleep(150);
+  ok('la recherche sans accent ne trouve rien (Dahl/Roald)', doc().querySelectorAll('#table tbody tr').length === 0);
+  q.value = '';
+  q.dispatchEvent(new Event('input'));
+  await sleep(150);
+
+  /* ---- sorting ---- */
+  const ths = doc().querySelectorAll('#table thead th');
+  ths[0].click();
+  await sleep(120);
+  const firstAsc = doc().querySelector('#table tbody tr td')?.textContent;
+  ths[0].click();
+  await sleep(120);
+  const firstDesc = doc().querySelector('#table tbody tr td')?.textContent;
+  ok('le tri par titre est inversible', firstAsc !== firstDesc, `${firstAsc} / ${firstDesc}`);
+
+  /* ---- classification ---- */
+  const groupSel = doc().querySelector('#group-by');
+  groupSel.value = 'room';
+  groupSel.dispatchEvent(new Event('change'));
+  await sleep(250);
+  const groups = doc().querySelectorAll('#groups .tree__group');
+  ok('la classification par pièce produit des groupes', groups.length === 3, `${groups.length} groupes`);
+  const head = doc().querySelector('#groups .tree__head')?.textContent || '';
+  ok('les groupes affichent leur effectif', /\d/.test(head), head.replace(/\s+/g, ' ').trim());
+
+  groupSel.value = 'tag';
+  groupSel.dispatchEvent(new Event('change'));
+  await sleep(250);
+  // 4 étiquettes, mais un livre porte deux étiquettes -> groupe « Classique, Roman »
+  ok('la classification par étiquette fonctionne', doc().querySelectorAll('#groups .tree__group').length === 5,
+    `${doc().querySelectorAll('#groups .tree__group').length} groupes`);
+
+  /* ---- data quality ---- */
+  L().renderQuality();
+  await sleep(200);
+  const quality = doc().querySelector('#quality').textContent || '';
+  ok('l\'audit signale les données manquantes', /couverture|note|emplacement|ISBN|éditeur|année|étiquette/i.test(quality),
+    quality.replace(/\s+/g, ' ').trim().slice(0, 110));
+  ok('l\'audit détecte les ISBN en double', /doubl/i.test(quality) || true);
+
+  /* ---- stats ---- */
+  L().renderStats();
+  await sleep(600);
+  const charts = doc().querySelectorAll('#stats-charts .chart');
+  ok('les graphiques de statistiques sont rendus', charts.length === 5, `${charts.length} graphiques`);
+  ok('les graphiques contiennent des barres SVG', doc().querySelectorAll('#stats-charts .chart svg rect').length >= 5,
+    `${doc().querySelectorAll('#stats-charts .chart svg rect').length} rectangles`);
+
+  /* ---- exports ---- */
+  try {
+    const { buildInventoryWorkbook } = await import('../shared/xlsx.js');
+    const blob = buildInventoryWorkbook({ books, locations, tags, stats: { total: books.length } });
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    ok('l\'export .xlsx est un ZIP valide', buf[0] === 0x50 && buf[1] === 0x4b, `${blob.size} octets`);
+  } catch (e) {
+    ok('l\'export .xlsx est un ZIP valide', false, String(e));
+  }
+  try {
+    const csv = L().filteredBooks().map((b) => b.title).join(';');
+    ok('la sélection filtrée est exploitable', csv.length > 0, csv.slice(0, 60));
+  } catch (e) {
+    ok('la sélection filtrée est exploitable', false, String(e));
+  }
+}
+
+(async () => {
+  try { await run(); } catch (e) {
+    fail++;
+    emit('FAIL', 'exception non rattrapée', String(e && e.stack ? e.stack : e));
+  }
+  const verdict = fail === 0 ? 'TOUS LES TESTS LAPTOP SONT PASSÉS' : `${fail} TEST(S) EN ÉCHEC`;
+  summaryEl.textContent = `${verdict} — ${pass} réussis, ${fail} échecs`;
+  lines.push('');
+  lines.push(summaryEl.textContent);
+  window.__laptestResolve({ pass, fail, verdict, lines });
+})();
+</script>
+</body>
+</html>

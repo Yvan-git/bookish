@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Bookish — Test du simulateur</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 "Segoe UI", system-ui, sans-serif; margin: 0; padding: 20px; background: #12100f; color: #f0ece7; }
+  h1 { font-size: 1.1rem; margin: 0 0 4px; }
+  .sub { color: #a89f96; font-size: .82rem; margin-bottom: 14px; }
+  #out { font-family: Consolas, "Courier New", monospace; font-size: 12px; white-space: pre-wrap;
+         background: #1b1817; border: 1px solid #333; border-radius: 8px; padding: 12px; max-height: 46vh; overflow: auto; }
+  .PASS { color: #6ee7a8; } .FAIL { color: #ff8b8b; } .WARN { color: #f5c26b; } .INFO { color: #9ec7ff; }
+  #frame { width: 100%; height: 900px; border: 1px solid #333; border-radius: 10px; margin-top: 14px; background: #000; }
+  .summary { margin-top: 12px; font-weight: 600; }
+</style>
+</head>
+<body>
+  <h1>Bookish — test du simulateur (laboratoire mobile)</h1>
+  <div class="sub">Pilote la page <code>app/simulator.html</code> comme le ferait l'utilisateur.</div>
+  <div id="out"></div>
+  <div class="summary" id="summary">En cours…</div>
+  <iframe id="frame" src="../app/simulator.html" title="Simulateur"></iframe>
+
+<script>
+window.__simtest = new Promise((resolve) => { window.__simtestResolve = resolve; });
+</script>
+
+<script type="module">
+const out = document.getElementById('out');
+const summaryEl = document.getElementById('summary');
+const lines = [];
+let pass = 0, fail = 0, warn = 0;
+
+function emit(kind, name, detail = '') {
+  const line = `${kind.padEnd(4)} ${name}${detail ? ' — ' + detail : ''}`;
+  lines.push(line);
+  const div = document.createElement('div');
+  div.className = kind;
+  div.textContent = line;
+  out.appendChild(div);
+  out.scrollTop = out.scrollHeight;
+}
+const ok = (name, cond, detail = '') => {
+  if (cond) { pass++; emit('PASS', name, detail); } else { fail++; emit('FAIL', name, detail); }
+  return !!cond;
+};
+const soft = (name, cond, detail = '') => {
+  if (cond) { pass++; emit('PASS', name, detail); } else { warn++; emit('WARN', name, detail); }
+  return !!cond;
+};
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function until(fn, { timeout = 20000, step = 120 } = {}) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    let v; try { v = fn(); } catch { v = false; }
+    if (v) return v;
+    await sleep(step);
+  }
+  return false;
+}
+
+const simFrame = document.getElementById('frame');
+const sim = () => simFrame.contentDocument;
+const device = () => sim().querySelector('#device');
+const appWin = () => device()?.contentWindow;
+const app = () => appWin()?.bookish;
+const appDoc = () => device()?.contentDocument;
+
+async function run() {
+  ok('le simulateur se charge', await until(() => !!sim() && !!sim().querySelector('#log')), '');
+  ok('le simulateur affiche un journal', !!sim().querySelector('#log'));
+
+  const appReady = await until(() => {
+    const f = device();
+    return f && f.contentWindow && f.contentWindow.bookish && f.contentWindow.bookish.state.ready;
+  }, { timeout: 30000 });
+  ok('l\'application embarquée démarre dans le simulateur', appReady);
+  if (!appReady) return;
+
+  const logText = () => sim().querySelector('#log').textContent;
+  const announced = await until(() => /Application chargée/.test(logText()), { timeout: 15000 });
+  ok('le journal signale le chargement de l\'application', announced, logText().slice(0, 120));
+
+  /* ---- controls ---- */
+  ok('le sélecteur d\'ISBN propose des ouvrages réels', sim().querySelectorAll('#isbn-sample option').length >= 5,
+    `${sim().querySelectorAll('#isbn-sample option').length} options`);
+  ok('le bouton « Simuler un scan » existe', !!sim().querySelector('#btn-scan'));
+  ok('le bouton de jeu de démonstration existe', !!sim().querySelector('#btn-seed'));
+  ok('les interrupteurs hors ligne / réseau lent existent',
+    !!sim().querySelector('#sw-offline') && !!sim().querySelector('#sw-slow'));
+
+  /* ---- offline toggle ---- */
+  sim().querySelector('#sw-offline').click();
+  await sleep(200);
+  ok('l\'interrupteur hors ligne est appliqué à l\'application', appWin().__bookishOffline === true);
+  sim().querySelector('#sw-offline').click();
+  await sleep(200);
+  ok('l\'interrupteur hors ligne se désactive', appWin().__bookishOffline === false);
+
+  sim().querySelector('#sw-slow').click();
+  await sleep(200);
+  ok('l\'interrupteur réseau lent applique une latence', appWin().__bookishLatency > 0);
+  sim().querySelector('#sw-slow').click();
+  await sleep(200);
+
+  /* ---- seed demo data ---- */
+  sim().querySelector('#btn-seed').click();
+  const seeded = await until(() => app() && app().state.books.length >= 6, { timeout: 15000 });
+  ok('le jeu de démonstration ajoute 6 livres', seeded, `${app()?.state.books.length || 0} livre(s)`);
+  ok('les emplacements de démonstration sont créés', (app()?.state.locations.length || 0) >= 4);
+  ok('les étiquettes de démonstration sont créées', (app()?.state.tags.length || 0) >= 6);
+
+  const rows = await until(() => appDoc().querySelectorAll('#app-main .book-row').length >= 6, { timeout: 10000 });
+  ok('la bibliothèque du simulateur affiche les livres', rows,
+    `${appDoc().querySelectorAll('#app-main .book-row').length} lignes`);
+
+  /* ---- simulated scan (network) ---- */
+  sim().querySelector('#isbn-sample').value = '9782070362516';
+  sim().querySelector('#btn-scan').click();
+  const proposal = await until(() => {
+    const d = appDoc();
+    if (!d) return false;
+    const first = d.querySelector('#app-main .meta-form .field-grid input');
+    return first && first.value ? first.value : false;
+  }, { timeout: 40000 });
+  soft('le scan simulé interroge la BnF et propose une fiche',
+    !!proposal,
+    proposal ? `titre proposé : « ${proposal} »` : 'aucune proposition affichée');
+
+  const sourceBadge = appDoc()?.querySelector('#app-main .badge')?.textContent || '';
+  soft('la proposition indique la source de la fiche', /BnF|Google/i.test(sourceBadge), sourceBadge);
+
+  /* ---- reset ---- */
+  sim().querySelector('#btn-reset').click();
+  const cleared = await until(() => app() && app().state.books.length === 0, { timeout: 10000 });
+  ok('la réinitialisation efface les données', cleared, `${app()?.state.books.length ?? '?'} livre(s)`);
+}
+
+(async () => {
+  try { await run(); } catch (e) {
+    fail++;
+    emit('FAIL', 'exception non rattrapée', String(e && e.stack ? e.stack : e));
+  }
+  const verdict = fail === 0 ? 'TOUS LES TESTS DU SIMULATEUR SONT PASSÉS' : `${fail} TEST(S) EN ÉCHEC`;
+  summaryEl.textContent = `${verdict} — ${pass} réussis, ${fail} échecs, ${warn} avertissements`;
+  lines.push('');
+  lines.push(summaryEl.textContent);
+  window.__simtestResolve({ pass, fail, warn, verdict, lines });
+})();
+</script>
+</body>
+</html>

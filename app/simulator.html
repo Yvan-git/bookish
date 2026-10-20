@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bookish — Simulateur</title>
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/app.css">
+<style>
+  body { background: var(--surface-3); }
+  .lab { display: grid; grid-template-columns: 1fr 380px; gap: 0; min-height: 100dvh; }
+
+  .lab__stage {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px; padding: 28px;
+    background:
+      radial-gradient(1000px 520px at 50% -10%, color-mix(in srgb, var(--primary) 12%, transparent), transparent),
+      var(--surface-3);
+  }
+  .lab__title { text-align: center; }
+  .lab__title h1 { font-size: 1.45rem; }
+  .lab__title p { color: var(--muted); font-size: .86rem; margin: 4px 0 0; }
+
+  .phone {
+    width: 390px; height: 844px;
+    background: #14110f;
+    border-radius: 46px;
+    padding: 12px;
+    box-shadow: 0 40px 90px -30px rgba(0,0,0,.55), 0 0 0 2px #3a3330;
+    position: relative;
+    flex: none;
+  }
+  .phone__screen {
+    width: 100%; height: 100%;
+    border-radius: 34px;
+    overflow: hidden;
+    background: var(--paper);
+    position: relative;
+  }
+  .phone__screen iframe { width: 100%; height: 100%; border: 0; display: block; }
+  .phone__notch {
+    position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+    width: 116px; height: 26px; background: #14110f; border-radius: 999px; z-index: 5;
+  }
+  .phone__status {
+    position: absolute; top: 0; left: 0; right: 0; height: 40px; z-index: 4;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 26px; font-size: 12px; font-weight: 600; color: var(--ink);
+    pointer-events: none; mix-blend-mode: difference; color: #fff;
+  }
+  .phone__home {
+    position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%);
+    width: 128px; height: 5px; background: rgba(255,255,255,.35); border-radius: 999px; z-index: 6;
+  }
+  .zoom-wrap { transform-origin: top center; }
+
+  .lab__panel {
+    background: var(--surface);
+    border-left: 1px solid var(--line);
+    padding: 22px 20px 40px;
+    overflow-y: auto;
+    height: 100dvh;
+  }
+  .lab__panel h2 {
+    font-family: var(--font-ui); font-size: .76rem; font-weight: 700;
+    letter-spacing: .09em; text-transform: uppercase; color: var(--muted);
+    margin: 22px 0 10px;
+  }
+  .lab__panel h2:first-of-type { margin-top: 0; }
+  .lab__panel .card { box-shadow: none; border-radius: var(--r); }
+  .lab__row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .lab__log {
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm);
+    font-family: var(--font-mono); font-size: .72rem; padding: 10px;
+    max-height: 190px; overflow-y: auto; line-height: 1.55;
+  }
+  .lab__log div { border-bottom: 1px dotted var(--line); padding: 2px 0; }
+  .lab__log div:last-child { border-bottom: 0; }
+  .pill-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  @media (max-width: 1080px) {
+    .lab { grid-template-columns: 1fr; }
+    .lab__panel { height: auto; border-left: 0; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div class="lab">
+  <section class="lab__stage">
+    <div class="lab__title">
+      <h1>Bookish — Simulateur</h1>
+      <p>Testez l'application complète sur cette machine avant de l'installer sur Android.</p>
+    </div>
+    <div class="zoom-wrap" id="zoom-wrap">
+      <div class="phone">
+        <div class="phone__screen">
+          <iframe id="device" src="./index.html" title="Bookish" allow="camera; microphone" allowfullscreen></iframe>
+        </div>
+        <div class="phone__notch"></div>
+        <div class="phone__status"><span id="clock">9:41</span><span>● ● ●</span></div>
+        <div class="phone__home"></div>
+      </div>
+    </div>
+    <div class="lab__row">
+      <button class="btn btn--secondary btn--sm" id="btn-reload">Recharger l'app</button>
+      <button class="btn btn--secondary btn--sm" id="btn-fullscreen">Plein écran</button>
+      <select class="select btn--sm" id="zoom" style="width:auto">
+        <option value="0.75">75 %</option>
+        <option value="0.85" selected>85 %</option>
+        <option value="1">100 %</option>
+      </select>
+    </div>
+  </section>
+
+  <aside class="lab__panel">
+    <h2>Scanner simulé</h2>
+    <div class="card card--pad">
+      <label class="field">
+        <span class="field__label">Livres de test (ISBN)</span>
+        <select class="select" id="isbn-sample">
+          <option value="9782070362516">9782070362516 — BnF (Hemingway, Folio)</option>
+          <option value="9782070423203">9782070423203 — BnF (Tournier, Flammarion)</option>
+          <option value="9782253070219">9782253070219 — BnF (Szabó, Flammarion)</option>
+          <option value="9782263013061">9782263013061 — BnF (Actes Sud)</option>
+          <option value="9782070461073">9782070461073 — BnF</option>
+          <option value="9780140328721">9780140328721 — pas dans la BnF (Google)</option>
+          <option value="0000000000000">0000000000000 — introuvable (manuel)</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="field__label">ou ISBN personnalisé</span>
+        <input class="input" id="isbn-custom" type="text" inputmode="numeric" placeholder="978…">
+      </label>
+      <button class="btn btn--primary btn--block" id="btn-scan">Simuler un scan</button>
+    </div>
+
+    <h2>Scénarios</h2>
+    <div class="card card--pad">
+      <div class="setting-row" style="padding-top:0">
+        <div class="setting-row__main">
+          <div class="setting-row__title">API indisponible</div>
+          <div class="setting-row__desc">Force l'échec des appels BnF / Google Books</div>
+        </div>
+        <button class="switch" id="sw-offline" role="switch" aria-checked="false"></button>
+      </div>
+      <div class="setting-row">
+        <div class="setting-row__main">
+          <div class="setting-row__title">Réseau lent</div>
+          <div class="setting-row__desc">Ajoute 1,5 s de latence à chaque appel</div>
+        </div>
+        <button class="switch" id="sw-slow" role="switch" aria-checked="false"></button>
+      </div>
+    </div>
+
+    <h2>Données</h2>
+    <div class="card card--pad">
+      <div class="lab__row">
+        <button class="btn btn--secondary btn--sm" id="btn-seed">Jeu de démonstration</button>
+        <button class="btn btn--secondary btn--sm" id="btn-export">Exporter JSON</button>
+        <button class="btn btn--danger btn--sm" id="btn-reset">Réinitialiser</button>
+      </div>
+      <p class="tiny muted" style="margin-top:10px">
+        Les données vivent dans l'IndexedDB du navigateur (même origine que l'app).
+      </p>
+    </div>
+
+    <h2>Journal</h2>
+    <div class="lab__log" id="log"></div>
+  </aside>
+</div>
+
+<script type="module">
+const $ = (s) => document.querySelector(s);
+const frame = $('#device');
+const logBox = $('#log');
+
+function log(msg) {
+  const line = document.createElement('div');
+  const now = new Date().toLocaleTimeString('fr-FR');
+  line.textContent = `${now}  ${msg}`;
+  logBox.prepend(line);
+  while (logBox.children.length > 60) logBox.lastChild.remove();
+}
+
+/* --------------------------- app bridge --------------------------- */
+
+function app() {
+  return frame.contentWindow && frame.contentWindow.bookish;
+}
+
+async function waitForApp(timeout = 12000) {
+  const started = Date.now();
+  while (Date.now() - started < timeout) {
+    if (app() && app().state && app().state.ready) return true;
+    await new Promise((r) => setTimeout(r, 120));
+  }
+  return false;
+}
+
+// The device iframe may finish loading *before* this module runs, in which
+// case the `load` event is already gone. Polling for readiness is the only
+// reliable way to announce the app.
+let bootCount = 0;
+async function boot() {
+  const n = ++bootCount;
+  const ready = await waitForApp(20000);
+  if (n !== bootCount) return; // a newer boot superseded this one
+  log(ready ? 'Application chargée' : 'Application non chargée');
+  if (ready) {
+    log(`Prête — ${app().state.books.length} livre(s) en base`);
+    applyToggles();
+  }
+}
+frame.addEventListener('load', boot);
+boot();
+
+/* --------------------------- controls --------------------------- */
+
+$('#btn-reload').addEventListener('click', () => { frame.contentWindow.location.reload(); log('Rechargement'); });
+
+$('#btn-fullscreen').addEventListener('click', () => {
+  const el = document.documentElement;
+  if (document.fullscreenElement) document.exitFullscreen();
+  else el.requestFullscreen?.();
+});
+
+$('#zoom').addEventListener('change', (e) => {
+  $('#zoom-wrap').style.transform = `scale(${e.currentTarget.value})`;
+  $('#zoom-wrap').style.marginBottom = `${(844 * (e.currentTarget.value - 1))}px`;
+});
+
+$('#btn-scan').addEventListener('click', async () => {
+  const custom = $('#isbn-custom').value.trim();
+  const isbn = custom || $('#isbn-sample').value;
+  if (!app()) { log('Application non prête'); return; }
+  app().navigate('scan');
+  await new Promise((r) => setTimeout(r, 450));
+  app().simulateScan(isbn);
+  log(`Scan simulé : ${isbn}`);
+});
+
+$('#sw-offline').addEventListener('click', (e) => {
+  const btn = e.currentTarget;
+  const next = btn.getAttribute('aria-checked') !== 'true';
+  btn.setAttribute('aria-checked', String(next));
+  applyToggles();
+  log(next ? 'Mode hors ligne activé' : 'Mode hors ligne désactivé');
+});
+
+$('#sw-slow').addEventListener('click', (e) => {
+  const btn = e.currentTarget;
+  const next = btn.getAttribute('aria-checked') !== 'true';
+  btn.setAttribute('aria-checked', String(next));
+  applyToggles();
+  log(next ? 'Réseau lent activé' : 'Réseau normal');
+});
+
+function applyToggles() {
+  if (!frame.contentWindow) return;
+  frame.contentWindow.__bookishOffline = $('#sw-offline').getAttribute('aria-checked') === 'true';
+  frame.contentWindow.__bookishLatency = $('#sw-slow').getAttribute('aria-checked') === 'true' ? 1500 : 0;
+}
+
+$('#btn-reset').addEventListener('click', async () => {
+  if (!app()) return;
+  await app().store.clearAllData();
+  log('Données effacées');
+});
+
+$('#btn-export').addEventListener('click', async () => {
+  if (!app()) return;
+  const data = app().store.snapshot();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'books-inventory.json'; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+  log('Export JSON téléchargé');
+});
+
+/* ------------------------- demo data ------------------------- */
+
+const DEMO = [
+  { isbn13: '9782070362516', title: "Mort dans l'après-midi", authors: ['Hemingway, Ernest'], publisher: 'Gallimard', year: '1972', pages: '503', language: 'fr', collection: 'Collection Folio', room: 'Salon', zone: 'gauche', shelf: '1ère étagère', position: 'droite', tags: ['Classique', 'Roman'], rating: 5 },
+  { isbn13: '9782070423203', title: 'Lieux dits', authors: ['Tournier, Michel'], publisher: 'Flammarion', year: '1993', pages: '352', language: 'fr', collection: 'Flammarion', room: 'Salon', zone: 'gauche', shelf: '1ère étagère', position: 'gauche', tags: ['Classique', 'Prix Goncourt'], rating: 4 },
+  { isbn13: '9782253070219', title: "La ballade d'Iza", authors: ['Szabó, Magda'], publisher: 'Flammarion', year: '1988', pages: '250', language: 'fr', collection: 'Flammarion', room: 'Chambre', zone: '', shelf: '2ème étagère', position: 'gauche', tags: ['Roman', 'Littérature hongroise'], rating: 5 },
+  { isbn13: '9782263013061', title: 'Mythes et couleurs du Mexique', authors: ['Jannel, Claude'], publisher: 'Actes Sud', year: '2013', pages: '224', language: 'fr', collection: 'Les bartavelles', room: 'Garage', zone: 'gauche', shelf: '3ème étagère', position: 'droite', tags: ['Essai', 'Voyage'], rating: 3 },
+  { isbn13: '9780140328721', title: 'Matilda', authors: ['Dahl, Roald'], publisher: 'Puffin', year: '2001', pages: '240', language: 'en', collection: 'Puffin Books', room: 'Chambre', zone: '', shelf: '2ème étagère', position: 'droite', tags: ['Jeunesse', 'Fantasy'], rating: 4 },
+  { isbn13: '9782070461073', title: 'La Belle dame chez les Sioux', authors: ['Steelman, Robert J.'], publisher: 'Flammarion', year: '1998', pages: '298', language: 'fr', collection: 'Flammarion', room: 'Bureau', zone: '', shelf: '1ère étagère', position: 'gauche', tags: ['Roman', 'Western'], rating: 3 },
+];
+
+$('#btn-seed').addEventListener('click', async () => {
+  if (!app()) { log('Application non prête'); return; }
+  const store = app().store;
+  for (const d of DEMO) {
+    const loc = await store.addLocation(store.makeLocation({ room: d.room, zone: d.zone, shelf: d.shelf, position: d.position }));
+    const tagIds = [];
+    for (const name of d.tags) {
+      const tag = await store.addTag({ name, category: name === 'Jeunesse' ? 'public' : 'style' });
+      if (tag) tagIds.push(tag.id);
+    }
+    await store.addBook({
+      ...d, locationId: loc.id, tagIds, source: 'bnf', rating: d.rating,
+      coverUrl: '', catalogueUrl: '', subjects: [],
+    });
+  }
+  log(`${DEMO.length} livres de démonstration ajoutés`);
+  app().navigate('library');
+});
+
+/* --------------------------- clock --------------------------- */
+function tick() {
+  const d = new Date();
+  $('#clock').textContent = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+tick();
+setInterval(tick, 15000);
+log('Simulateur prêt');
+</script>
+</body>
+</html>

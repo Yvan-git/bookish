@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Bookish &mdash; Test du scanner / camera</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 "Segoe UI", system-ui, sans-serif; margin: 0; padding: 20px; background: #12100f; color: #f0ece7; }
+  h1 { font-size: 1.1rem; margin: 0 0 4px; }
+  .sub { color: #a89f96; font-size: .82rem; margin-bottom: 14px; }
+  #out { font-family: Consolas, "Courier New", monospace; font-size: 12px; white-space: pre-wrap;
+         background: #1b1817; border: 1px solid #333; border-radius: 8px; padding: 12px; max-height: 40vh; overflow: auto; }
+  .PASS { color: #6ee7a8; } .FAIL { color: #ff8b8b; } .WARN { color: #f5c26b; } .INFO { color: #9ec7ff; }
+  #frame { width: 420px; height: 860px; border: 1px solid #333; border-radius: 10px; margin-top: 14px; background: #000; }
+  .summary { margin-top: 12px; font-weight: 600; }
+  .note { color: #a89f96; font-size: .8rem; margin-top: 10px; max-width: 760px; }
+</style>
+</head>
+<body>
+  <h1>Bookish &mdash; test du scanner (cam&eacute;ra)</h1>
+  <div class="sub">Ouvre le scanner r&eacute;el dans l'application et v&eacute;rifie le flux cam&eacute;ra, le moteur de d&eacute;codage et le d&eacute;codeur de secours.</div>
+  <div id="out"></div>
+  <div class="summary" id="summary">En cours&hellip;</div>
+  <div class="note">
+    Ce test n&eacute;cessite que le navigateur ait la permission cam&eacute;ra : le pilote
+    <code>tools/cdp-run.ps1</code> l'accorde avec <code>-GrantCamera</code>.
+    Sur les postes o&ugrave; le <code>BarcodeDetector</code> natif n'existe pas (Windows, Linux),
+    le d&eacute;codeur de secours jsQR est attendu ; sur Android/Chrome le scan natif est attendu.
+  </div>
+  <iframe id="frame" src="../app/index.html" title="Bookish" allow="camera; microphone" allowfullscreen></iframe>
+
+<script>
+window.__camtest = new Promise((resolve) => { window.__camtestResolve = resolve; });
+</script>
+
+<script type="module">
+const out = document.getElementById('out');
+const summaryEl = document.getElementById('summary');
+const lines = [];
+let pass = 0, fail = 0, warn = 0;
+
+function emit(kind, name, detail = '') {
+  const line = `${kind.padEnd(4)} ${name}${detail ? ' — ' + detail : ''}`;
+  lines.push(line);
+  const div = document.createElement('div');
+  div.className = kind;
+  div.textContent = line;
+  out.appendChild(div);
+  out.scrollTop = out.scrollHeight;
+}
+const ok = (name, cond, detail = '') => {
+  if (cond) { pass++; emit('PASS', name, detail); } else { fail++; emit('FAIL', name, detail); }
+  return !!cond;
+};
+const soft = (name, cond, detail = '') => {
+  if (cond) { pass++; emit('PASS', name, detail); } else { warn++; emit('WARN', name, detail); }
+  return !!cond;
+};
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function until(fn, { timeout = 20000, step = 150 } = {}) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    let v; try { v = fn(); } catch { v = false; }
+    if (v) return v;
+    await sleep(step);
+  }
+  return false;
+}
+
+const frame = document.getElementById('frame');
+const appWin = () => frame.contentWindow;
+const app = () => appWin()?.bookish;
+const doc = () => frame.contentDocument;
+
+async function run() {
+  const ready = await until(() => {
+    const w = appWin();
+    return w && w.bookish && w.bookish.state && w.bookish.state.ready;
+  }, { timeout: 30000 });
+  ok('l\'application démarre dans le cadre de test', ready);
+  if (!ready) return;
+
+  const nativeApi = 'BarcodeDetector' in appWin();
+  emit('INFO', 'BarcodeDetector natif disponible', nativeApi ? 'oui' : 'non (decodeur de secours attendu)');
+
+  app().navigate('scan');
+  await sleep(700);
+
+  const btn = [...doc().querySelectorAll('#app-main button')]
+    .find((b) => /scanner/i.test(b.textContent) && !/manuel/i.test(b.textContent));
+  ok('le bouton « Scanner » est présent', !!btn, btn ? btn.textContent.trim() : '');
+  if (!btn) return;
+
+  btn.click();
+  const overlay = await until(() => doc().querySelector('.scanner'), { timeout: 20000 });
+  ok('l\'overlay du scanner s\'ouvre', !!overlay);
+  if (!overlay) return;
+
+  await sleep(4500);
+
+  const video = overlay.querySelector('video');
+  ok('la vidéo du scanner est présente', !!video);
+  const size = video ? `${video.videoWidth}x${video.videoHeight}` : 'aucune';
+  ok('la caméra diffuse une image', !!(video && video.videoWidth > 0), size);
+  ok('la lecture vidéo est en cours', !!(video && !video.paused));
+
+  const badge = overlay.querySelector('.scanner__engine');
+  ok('le moteur de décodage est affiché', !!badge, badge ? badge.textContent.trim() : '');
+
+  const jsqrLoaded = typeof appWin().jsQR === 'function';
+  ok('le décodeur jsQR est chargé', jsqrLoaded);
+
+  const jsqrScripts = [...doc().querySelectorAll('script[src]')]
+    .map((s) => s.src).filter((s) => /jsqr/i.test(s));
+  const localJsqr = jsqrScripts.some((s) => /\/app\/vendor\/jsQR\.js$/.test(s));
+  soft('jsQR provient du copie locale (mode hors ligne possible)', localJsqr, jsqrScripts.join(', ') || 'aucun script jsQR');
+
+  if (nativeApi) {
+    ok('le badge indique le scan natif', (badge?.textContent || '').toLowerCase().includes('natif'), badge?.textContent?.trim());
+  } else {
+    ok('le badge indique le décodeur de secours', (badge?.textContent || '') === 'jsQR', badge?.textContent?.trim());
+    const text = overlay.innerText.replace(/\s+/g, ' ');
+    soft('le message d\'avertissement reste rassurant',
+      /jsQR|secours|décodeur/i.test(text) && !/indisponible/i.test(text),
+      text.slice(0, 150));
+  }
+
+  const close = overlay.querySelector('.scanner__top .icon-btn');
+  ok('le bouton de fermeture est présent', !!close);
+  if (close) {
+    close.click();
+    const gone = await until(() => !doc().querySelector('.scanner'), { timeout: 8000 });
+    ok('l\'overlay se ferme', gone);
+  }
+}
+
+(async () => {
+  try { await run(); } catch (e) {
+    fail++;
+    emit('FAIL', 'exception non rattrapée', String(e && e.stack ? e.stack : e));
+  }
+  const verdict = fail === 0 ? 'TOUS LES TESTS DU SCANNER SONT PASSÉS' : `${fail} TEST(S) EN ÉCHEC`;
+  summaryEl.textContent = `${verdict} — ${pass} réussis, ${fail} échecs, ${warn} avertissements`;
+  lines.push('');
+  lines.push(summaryEl.textContent);
+  window.__camtestResolve({ pass, fail, warn, verdict, lines });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+# Generated artefacts
+_shots/
+*.xlsx
+*.json.bak
+*.log
+*.err
+tools/_*
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
