@@ -74,21 +74,33 @@ foreach ($suite in $suites) {
   Write-Head "Suite : $($suite.name)"
   $extra = @()
   if ($suite.camera) { $extra += "-GrantCamera" }
-  $out = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "cdp-run.ps1") `
-    -Url $suite.url -Expr $suite.expr -TimeoutSec 240 @extra 2>&1
-  $text = ($out | Out-String)
-  $lines = $text -split "`r?`n" | Where-Object { $_ -match '^\s*"(PASS|FAIL|WARN|INFO)\s' }
-  foreach ($l in $lines) { Write-Output ($l.Trim() -replace '^"', '' -replace '",?$', '' -replace '\\u0027', "'") }
-  $verdict = ($text | Select-String -Pattern '"verdict":\s*"([^"]+)"' -AllMatches).Matches
-  $v = if ($verdict.Count) { $verdict[0].Groups[1].Value } else { "résultat indisponible" }
-  if ($v -eq "résultat indisponible") {
-    $fallback = ($text | Select-String -Pattern '"title":\s*"([^"]+)"' -AllMatches).Matches
-    if ($fallback.Count) {
-      $v = if ($fallback[0].Groups[1].Value -match 'OK') { 'TOUS LES TESTS SONT PASSÉS' } else { $fallback[0].Groups[1].Value }
+  # The camera fake device and the browser profile are shared resources: a run
+  # that fails to produce a verdict is retried once before being declared failed.
+  $v = $null
+  for ($attempt = 1; $attempt -le 2 -and -not $v; $attempt++) {
+    if ($attempt -gt 1) {
+      Write-Output "  (nouvel essai après un résultat indisponible…)"
+      Start-Sleep -Seconds 4
+    }
+    $out = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "cdp-run.ps1") `
+      -Url $suite.url -Expr $suite.expr -TimeoutSec 240 @extra 2>&1
+    $text = ($out | Out-String)
+    $lines = $text -split "`r?`n" | Where-Object { $_ -match '^\s*"(PASS|FAIL|WARN|INFO)\s' }
+    foreach ($l in $lines) { Write-Output ($l.Trim() -replace '^"', '' -replace '",?$', '' -replace '\\u0027', "'") }
+    $verdict = ($text | Select-String -Pattern '"verdict":\s*"([^"]+)"' -AllMatches).Matches
+    $v = if ($verdict.Count) { $verdict[0].Groups[1].Value } else { $null }
+    if (-not $v) {
+      $fallback = ($text | Select-String -Pattern '"title":\s*"([^"]+)"' -AllMatches).Matches
+      if ($fallback.Count) {
+        $v = if ($fallback[0].Groups[1].Value -match 'OK') { 'TOUS LES TESTS SONT PASSÉS' } else { $fallback[0].Groups[1].Value }
+      }
     }
   }
+  if (-not $v) { $v = "résultat indisponible" }
   $results += [pscustomobject]@{ Suite = $suite.name; Verdict = $v }
   if ($v -notmatch 'PASSÉS|PASSED|OK') { $failed++ }
+  # give the fake camera device time to be released before the next suite
+  if ($suite.camera) { Start-Sleep -Seconds 2 }
 }
 
 # ------------------------------------------------------------ extra checks

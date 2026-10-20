@@ -103,6 +103,23 @@ Type the title (and optionally the author) in the *Manual* panel, then press
 `Chercher` also does a title + author search on the BnF catalogue and proposes
 the matching records.
 
+#### Old books: type the ISBN
+
+For a book that has no barcode (or whose barcode is unreadable), the *Manual*
+panel has an **ISBN field that works on its own** — no title required:
+
+1. Type the ISBN printed inside the book (`978-2-07-036251-6`, `2070362515`, …).
+2. The field validates the checksum live: green for a valid ISBN-13, green with
+   a note for an ISBN-10 (it is converted automatically), amber for a typo.
+3. Press **Rechercher par ISBN** (or just `Enter`).
+
+The app then runs the *same* lookup as a scanned barcode — BnF first, Google
+Books as fallback — and proposes the full metadata sheet, ready to confirm.
+If neither catalogue knows the book, the manual sheet opens with the ISBN
+already filled in, and the title you typed alongside is kept.
+
+Hyphens and spaces are ignored, so the number can be copied as printed.
+
 ### Flow 3 — full metadata
 
 Every datapoint the APIs expose is stored: cover image (BnF `images.bnf.fr` or
@@ -379,4 +396,5 @@ powershell -ExecutionPolicy Bypass -File tools\shots.ps1        # PNG captures i
 | Google Books returns 429 | No API key configured (or quota exhausted). Add one in **Réglages → Clés API**. Manual entry still works. |
 | Drive sync fails | The OAuth client ID must be of type *Web application*, and the same ID must be used on the phone and on the laptop. See `docs/GOOGLE_SETUP.md`. |
 | The camera works but the barcode is not read | Try the ISBN field with a "douchette", or type the code manually. |
+| An old book has no barcode | Type its ISBN in the *Manual* panel — the ISBN field works on its own, no title needed. |
 | Changes are not visible in the app after a sync | The laptop workspace is read-only; the phone is the source of truth. |

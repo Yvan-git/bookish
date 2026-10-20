@@ -236,6 +236,80 @@ async function run() {
   const pressed = doc().querySelector('#app-main .location-picker .chip[aria-pressed="true"]');
   soft('l\'emplacement par défaut est proposé dans la fiche', !!pressed, pressed?.textContent?.trim() || 'aucun emplacement sélectionné');
 
+  /* ---- manual entry: ISBN typed by hand (old books, no barcode) ---- */
+  // the previous test left a proposal open: go back to the idle scan screen
+  const cancelBtn = [...doc().querySelectorAll('#app-main button')].find((b) => /annuler|cancel/i.test(b.textContent));
+  if (cancelBtn) { cancelBtn.click(); await sleep(400); }
+  app.navigate('scan');
+  await sleep(300);
+  const manualIsbn = await until(() => doc().querySelector('#manual-isbn'), { timeout: 8000 });
+  const manualHint = doc().querySelector('#manual-isbn-hint');
+  ok('la saisie manuelle propose un champ ISBN', !!manualIsbn);
+  ok('la saisie manuelle propose une aide liée au champ ISBN',
+    !!manualHint && manualIsbn?.getAttribute('aria-describedby') === 'manual-isbn-hint');
+  const setVal = (el, v) => { el.value = v; el.dispatchEvent(new (win().Event)('input', { bubbles: true })); };
+  const searchBtn = [...doc().querySelectorAll('#app-main button')].find((b) => /rechercher|compl/i.test(b.textContent));
+
+  // nothing typed -> the app must ask for an ISBN or a title
+  searchBtn?.click();
+  await sleep(400);
+  const toastText = (doc().querySelector('.toast')?.textContent || '').trim();
+  ok('sans ISBN ni titre, l\'application réclame un ISBN ou un titre',
+    /isbn/i.test(toastText) && /titre/i.test(toastText), toastText);
+
+  // valid ISBN-13
+  setVal(manualIsbn, '9782070362516');
+  await sleep(150);
+  ok('un ISBN-13 valide est signalé comme valide',
+    /valide/i.test(manualHint?.textContent || '') && /ok/.test(manualHint?.className || ''),
+    manualHint?.textContent?.trim());
+  ok('le bouton bascule en « rechercher par ISBN »',
+    /isbn/i.test(searchBtn?.textContent || ''), searchBtn?.textContent?.trim());
+
+  // hyphenated ISBN
+  setVal(manualIsbn, '978-2-07-036251-6');
+  await sleep(150);
+  ok('un ISBN saisi avec des tirets est accepté',
+    /valide/i.test(manualHint?.textContent || ''), manualHint?.textContent?.trim());
+
+  // ISBN-10 -> converted
+  setVal(manualIsbn, '2070362515');
+  await sleep(150);
+  ok('un ISBN-10 est signalé comme convertible en ISBN-13',
+    /isbn-10/i.test(manualHint?.textContent || ''), manualHint?.textContent?.trim());
+
+  // invalid ISBN -> warning, but still searchable
+  setVal(manualIsbn, '123');
+  await sleep(150);
+  ok('un ISBN invalide déclenche un avertissement',
+    /invalide/i.test(manualHint?.textContent || '') && /warn/.test(manualHint?.className || ''),
+    manualHint?.textContent?.trim());
+
+  // cleared
+  setVal(manualIsbn, '');
+  await sleep(150);
+  ok('l\'aide du champ ISBN revient à son texte par défaut',
+    /ISBN/i.test(manualHint?.textContent || ''), manualHint?.textContent?.trim());
+
+  // the decisive case: ISBN alone, no title -> lookup + proposal
+  setVal(manualIsbn, '9782070362516');
+  await sleep(150);
+  searchBtn?.click();
+  const isbnOnly = await until(() => {
+    const main = doc().querySelector('#app-main');
+    return main && /M[ÉE]TADONN[ÉE]ES PROPOS[ÉE]ES|Suggested metadata/i.test(main.innerText) ? main : false;
+  }, { timeout: 40000 });
+  soft('un ISBN saisi seul suffit à obtenir une fiche', !!isbnOnly);
+  if (isbnOnly) {
+    const isbnValue = [...isbnOnly.querySelectorAll('input')].map((i) => i.value).find((v) => v && /^97/.test(v));
+    ok('l\'ISBN saisi est repris dans la fiche proposée', !!isbnValue, isbnValue || 'absent');
+    const isbnTitle = [...isbnOnly.querySelectorAll('input')].map((i) => i.value).find((v) => v && v.length > 4 && !/^97/.test(v));
+    soft('la fiche propose un titre issu de l\'API', !!isbnTitle, isbnTitle ? `titre : « ${isbnTitle} »` : 'aucun titre');
+  }
+  // leave the view in a clean state for the next test
+  const cancel2 = [...doc().querySelectorAll('#app-main button')].find((b) => /annuler|cancel/i.test(b.textContent));
+  if (cancel2) { cancel2.click(); await sleep(300); }
+
   /* ---- export XLSX ---- */
   try {
     const { buildInventoryWorkbook } = await import('../shared/xlsx.js');

@@ -133,6 +133,8 @@ img { max-width: 100%; display: block; }
 
 .muted { color: var(--muted); }
 .tiny { font-size: .78rem; }
+.tiny.ok { color: var(--ok); }
+.tiny.warn { color: var(--warn); }
 .small { font-size: .84rem; }
 .strong { font-weight: 650; }
 .nowrap { white-space: nowrap; }
@@ -310,6 +312,7 @@ img { max-width: 100%; display: block; }
   letter-spacing: .01em;
 }
 .field__hint { font-size: .74rem; color: var(--muted); margin-top: 4px; }
+.field__label svg { vertical-align: -2px; margin-right: 5px; }
 
 .input, .select, .textarea {
   width: 100%;

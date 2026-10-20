@@ -6,7 +6,7 @@
 import { t } from '../strings.js';
 import { el, icon, starsEl, toast, openSheet } from '../util.js';
 import * as store from '../store.js';
-import { lookupIsbn, searchCatalog, toIsbn13, prettyIsbn } from '../apis.js';
+import { lookupIsbn, searchCatalog, toIsbn13, prettyIsbn, normalizeIsbn, isValidIsbn10, isValidIsbn13 } from '../apis.js';
 import { Scanner } from '../scanner.js';
 import { coverNode, metadataForm, locationPicker, openTagPicker, openBookDetail } from './shared.js';
 
@@ -82,32 +82,93 @@ export function renderScan(root, { onChanged }) {
       wedgeInput,
     );
 
-    // Manual entry
+    // Manual entry — an ISBN on its own is enough (old books, no barcode),
+    // title/author stays available for books with neither.
+    const isbnInput = el('input', {
+      class: 'input grow', type: 'text', id: 'manual-isbn',
+      inputmode: 'numeric', autocomplete: 'off', enterkeyhint: 'search',
+      'aria-describedby': 'manual-isbn-hint',
+      placeholder: t('scan.manualIsbn'),
+    });
+    const isbnHint = el('p', { class: 'tiny muted', id: 'manual-isbn-hint', style: { margin: '-2px 0 12px' } }, t('scan.manualIsbnHint'));
+
+    const titleInput = el('input', {
+      class: 'input grow', type: 'text', id: 'manual-title',
+      placeholder: t('scan.manualTitleOptional'), style: { minWidth: '140px' },
+    });
+    const authorInput = el('input', {
+      class: 'input grow', type: 'text', id: 'manual-author',
+      placeholder: t('scan.manualAuthor'), style: { minWidth: '120px' },
+    });
+
+    const searchLabel = el('span', {}, t('scan.complete'));
+
+    const refreshIsbnState = () => {
+      const raw = isbnInput.value.trim();
+      if (!raw) {
+        isbnHint.textContent = t('scan.manualIsbnHint');
+        isbnHint.className = 'tiny muted';
+        searchLabel.textContent = t('scan.complete');
+        return;
+      }
+      const clean = normalizeIsbn(raw);
+      if (isValidIsbn13(clean)) {
+        isbnHint.textContent = t('scan.isbnValid');
+        isbnHint.className = 'tiny ok';
+      } else if (isValidIsbn10(clean)) {
+        isbnHint.textContent = t('scan.isbnValid10');
+        isbnHint.className = 'tiny ok';
+      } else {
+        isbnHint.textContent = t('scan.isbnInvalid');
+        isbnHint.className = 'tiny warn';
+      }
+      searchLabel.textContent = t('scan.searchByIsbn');
+    };
+
+    const submitManual = () => {
+      const isbnRaw = isbnInput.value.trim();
+      const title = titleInput.value.trim();
+      const author = authorInput.value.trim();
+      if (isbnRaw) {
+        // ISBN alone: look the book up and propose the metadata.
+        startLookup(isbnRaw, { title, author });
+        return;
+      }
+      if (!title) {
+        toast(t('scan.needIsbnOrTitle'), 'error');
+        titleInput.focus();
+        return;
+      }
+      startSearch(title, author);
+    };
+
+    const searchBtn = el('button', {
+      class: 'btn btn--secondary', type: 'button',
+      onclick: () => submitManual(),
+    }, icon('search', 16), searchLabel);
+
+    isbnInput.addEventListener('input', refreshIsbnState);
+    [isbnInput, titleInput, authorInput].forEach((input) => {
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); submitManual(); }
+      });
+    });
+
     const manual = el('div', { class: 'card card--pad' },
       el('div', { class: 'row', style: { marginBottom: '8px' } },
         icon('edit', 16),
         el('div', { class: 'setting-row__title' }, t('scan.manual')),
       ),
-      el('p', { class: 'tiny muted', style: { marginBottom: '10px' } }, t('scan.completeHint')),
+      el('label', { class: 'field' },
+        el('span', { class: 'field__label' }, icon('barcode', 14), t('scan.manualIsbn')),
+        isbnInput),
+      isbnHint,
       el('div', { class: 'row', style: { gap: '8px', flexWrap: 'wrap' } },
-        el('input', {
-          class: 'input grow', type: 'text', id: 'manual-title',
-          placeholder: t('scan.manualTitle'), style: { minWidth: '140px' },
-        }),
-        el('input', {
-          class: 'input grow', type: 'text', id: 'manual-author',
-          placeholder: t('scan.manualAuthor'), style: { minWidth: '120px' },
-        }),
-        el('button', {
-          class: 'btn btn--secondary', type: 'button',
-          onclick: () => {
-            const title = document.getElementById('manual-title')?.value.trim();
-            const author = document.getElementById('manual-author')?.value.trim();
-            if (!title) { toast(t('scan.manualTitle'), 'error'); return; }
-            startSearch(title, author);
-          },
-        }, icon('search', 16), t('scan.complete')),
+        titleInput,
+        authorInput,
+        searchBtn,
       ),
+      el('p', { class: 'tiny muted', style: { marginTop: '10px', marginBottom: '0' } }, t('scan.completeHint')),
     );
 
     wrap.append(hero, el('div', { class: 'section', style: { marginTop: '16px' } }, wedge), manual);
@@ -293,7 +354,7 @@ export function renderScan(root, { onChanged }) {
     };
   }
 
-  async function startLookup(raw) {
+  async function startLookup(raw, fallback = {}) {
     state.mode = 'loading';
     paint();
     const apiKey = store.state.settings.googleBooksApiKey || '';
@@ -305,7 +366,9 @@ export function renderScan(root, { onChanged }) {
       } else {
         const isbn13 = toIsbn13(raw);
         state.proposal = makeProposal({
-          title: '', isbn13: isbn13 || raw,
+          title: fallback.title || '',
+          authors: fallback.author ? [fallback.author] : [],
+          isbn13: isbn13 || raw,
         }, 'manual');
         state.mode = 'proposal';
         if (res.warning) toast(`${t('common.error')} — ${res.warning}`, 'error', 5000);

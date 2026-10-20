@@ -231,11 +231,13 @@ try {
     if (-not $answered) { break }
 
     # `window.__x` may not exist yet if the module script has not run: retry.
+    # The promise is re-evaluated each time, so a slow page (live API calls)
+    # simply keeps returning "undefined" until it settles: be generous here.
     $isUndefined = $false
     if ($result) { $isUndefined = ($null -eq $result.value -and $result.type -eq "undefined") }
-    if ($isUndefined -and $attempts -lt 40) {
+    if ($isUndefined -and $attempts -lt 200) {
       $result = $null
-      Start-Sleep -Milliseconds 300
+      Start-Sleep -Milliseconds 500
       $id++
       continue
     }
